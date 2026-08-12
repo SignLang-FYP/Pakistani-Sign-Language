@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import AuthGuard from "@/components/common/AuthGuard";
+import PageHeader from "@/components/common/PageHeader";
 import { auth, db } from "@/lib/firebase";
 import { doc, setDoc } from "firebase/firestore";
 import { useEffect } from "react";
@@ -10,9 +10,9 @@ import { getDoc } from "firebase/firestore";
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from "firebase/auth";
 
 import { onAuthStateChanged } from "firebase/auth";
+import { useModal } from "@/components/common/ModalProvider";
 
-export default function ProfilePage() {
-  const router = useRouter();
+export default function ProfilePage() {  const modal = useModal();
 
   const [fullName, setFullName] = useState("");
   const [address, setAddress] = useState("");
@@ -56,173 +56,49 @@ export default function ProfilePage() {
 }, []);
 
 
-if (loadingProfile) {
-  return (
-    <AuthGuard>
-      <div className="min-h-screen w-full bg-gradient-to-br from-[var(--theme-main)] via-[var(--theme-main)] to-white flex items-center justify-center">
-        <div className="rounded-2xl bg-white/20 px-8 py-6 text-xl font-bold text-white shadow-xl backdrop-blur-md">
-          Loading profile...
+  if (loadingProfile) {
+    return (
+      <AuthGuard>
+        <div className="flex min-h-screen items-center justify-center">
+          <p className="faint text-sm">Loading profile…</p>
         </div>
-      </div>
-    </AuthGuard>
-  );
-}
-
-
-
-  return (
-    <AuthGuard>
-      <div className="min-h-screen w-full bg-gradient-to-br from-[var(--theme-main)] via-[var(--theme-main)] to-white px-6 py-10">
-        <div className="mx-auto w-full max-w-4xl">
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => router.push("/home")}
-              className="rounded-xl bg-white px-5 py-2 font-bold text-[var(--theme-main)]"
-            >
-              ← Back
-            </button>
-
-            <h2 className="text-2xl font-bold text-white">Profile Management</h2>
-
-            <div />
-          </div>
-
-          <div className="mt-12 rounded-3xl bg-white/20 p-8 shadow-xl backdrop-blur-md">
-            <div className="flex flex-col items-center">
-  <div className="h-32 w-32 overflow-hidden rounded-full bg-white/80 border-4 border-white shadow-lg">
-  {photoPreview ? (
-    <img
-      src={photoPreview}
-      alt="Profile"
-      className="block h-full w-full object-cover"
-    />
-  ) : (
-    <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-[var(--theme-main)]">
-      Profile Photo
-    </div>
-  )}
-</div>
-
-  <input
-  ref={fileInputRef}
-  type="file"
-  accept="image/*"
-  className="hidden"
-  onChange={(e) => {
-  const file = e.target.files?.[0];
-  if (file) {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64 = reader.result as string;
-      setPhotoPreview(base64);
-    };
-    reader.readAsDataURL(file);
-  }
-}}
-/>
-
-  <button
-    onClick={() => fileInputRef.current?.click()}
-    className="mt-4 rounded-xl bg-white px-5 py-2 font-bold text-[var(--theme-main)]"
-  >
-    Edit Photo
-  </button>
-</div>
-
-            <div className="mt-10 grid grid-cols-1 gap-4">
-              <input
-                type="text"
-                placeholder="Full Name"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className="w-full rounded-xl border border-white/30 bg-white/80 px-4 py-3 outline-none text-gray-800 placeholder:text-gray-500"
-              />
-
-              <input
-                type="text"
-                placeholder="Home Address"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                className="w-full rounded-xl border border-white/30 bg-white/80 px-4 py-3 outline-none text-gray-800 placeholder:text-gray-500"
-              />
-
-              <input
-                type="text"
-                placeholder="Contact Number"
-                value={contactNumber}
-                onChange={(e) => setContactNumber(e.target.value)}
-                className="w-full rounded-xl border border-white/30 bg-white/80 px-4 py-3 outline-none text-gray-800 placeholder:text-gray-500"
-              />
-
-              <button
-  onClick={async () => {
-  if (!auth.currentUser) {
-    alert("User not logged in");
-    return;
+      </AuthGuard>
+    );
   }
 
-  try {
-    await setDoc(
-  doc(db, "users", auth.currentUser.uid, "profile", "info"),
-  {
-    name: fullName,
-    address: address,
-    contact: contactNumber,
-    photoUrl: photoPreview,
-  },
-  { merge: true }
-);
+  async function handleSaveProfile() {
+    if (!auth.currentUser) {
+      await modal.error("User not logged in");
+      return;
+    }
 
-    alert("Profile saved successfully");
-  } catch (error: any) {
-    alert(error.message);
-    console.log(error);
+    try {
+      await setDoc(
+        doc(db, "users", auth.currentUser.uid, "profile", "info"),
+        {
+          name: fullName,
+          address: address,
+          contact: contactNumber,
+          photoUrl: photoPreview,
+        },
+        { merge: true }
+      );
+
+      await modal.success("Profile saved successfully", "Profile updated");
+    } catch (error: any) {
+      console.log(error);
+      await modal.error(error.message);
+    }
   }
-}}
-  className="mt-2 rounded-xl bg-white py-3 font-bold text-[var(--theme-main)]"
->
-  Save Changes
-</button>  
-            </div>
 
-            <div className="my-10 h-px w-full bg-white/40" />
-
-            <h3 className="text-xl font-bold text-white">Change Password</h3>
-
-            <div className="mt-4 grid grid-cols-1 gap-4">
-              <input
-                type="password"
-                placeholder="Current Password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                className="w-full rounded-xl border border-white/30 bg-white/80 px-4 py-3 outline-none text-gray-800 placeholder:text-gray-500"
-              />
-
-              <input
-                type="password"
-                placeholder="New Password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full rounded-xl border border-white/30 bg-white/80 px-4 py-3 outline-none text-gray-800 placeholder:text-gray-500"
-              />
-
-              <input
-                type="password"
-                placeholder="Confirm New Password"
-                value={confirmNewPassword}
-                onChange={(e) => setConfirmNewPassword(e.target.value)}
-                className="w-full rounded-xl border border-white/30 bg-white/80 px-4 py-3 outline-none text-gray-800 placeholder:text-gray-500"
-              />
-
-              <button
-  onClick={async () => {
+  async function handleUpdatePassword() {
     if (!auth.currentUser || !auth.currentUser.email) {
-      alert("User not logged in");
+      await modal.error("User not logged in");
       return;
     }
 
     if (newPassword !== confirmNewPassword) {
-      alert("New passwords do not match");
+      await modal.error("New passwords do not match", "Check your password");
       return;
     }
 
@@ -235,21 +111,196 @@ if (loadingProfile) {
       await reauthenticateWithCredential(auth.currentUser, credential);
       await updatePassword(auth.currentUser, newPassword);
 
-      alert("Password updated successfully");
+      await modal.success("Password updated successfully", "Password changed");
 
       setCurrentPassword("");
       setNewPassword("");
       setConfirmNewPassword("");
     } catch (error: any) {
-      alert(error.message);
+      await modal.error(error.message);
     }
-  }}
-  className="mt-2 rounded-xl bg-white py-3 font-bold text-[var(--theme-main)]"
->
-  Update Password
-</button>
+  }
+
+  return (
+    <AuthGuard>
+      <div className="page">
+        <div className="shell-narrow">
+          <PageHeader
+            eyebrow="Account"
+            title="Profile"
+            description="Manage your details and password."
+          />
+
+          <section className="mt-10 flex items-center gap-5">
+            <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)]">
+              {photoPreview ? (
+                <img
+                  src={photoPreview}
+                  alt="Profile"
+                  className="block h-full w-full object-cover"
+                />
+              ) : (
+                <div className="faint flex h-full w-full items-center justify-center text-[11px]">
+                  No photo
+                </div>
+              )}
             </div>
-          </div>
+
+            <div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                      setPhotoPreview(reader.result as string);
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                }}
+              />
+
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="btn btn-sm"
+              >
+                Change photo
+              </button>
+              <p className="faint mt-2 text-[12.5px]">JPG or PNG.</p>
+            </div>
+          </section>
+
+          <section className="mt-12">
+            <h2 className="section-title">Details</h2>
+
+            <div className="mt-5 grid gap-4">
+              <div>
+                <label className="field-label" htmlFor="profile-name">
+                  Full name
+                </label>
+                <input
+                  id="profile-name"
+                  type="text"
+                  placeholder="Your name"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  suppressHydrationWarning
+                  className="input"
+                />
+              </div>
+
+              <div>
+                <label className="field-label" htmlFor="profile-address">
+                  Home address
+                </label>
+                <input
+                  id="profile-address"
+                  type="text"
+                  placeholder="Street, city"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  suppressHydrationWarning
+                  className="input"
+                />
+              </div>
+
+              <div>
+                <label className="field-label" htmlFor="profile-contact">
+                  Contact number
+                </label>
+                <input
+                  id="profile-contact"
+                  type="text"
+                  placeholder="03xx xxxxxxx"
+                  value={contactNumber}
+                  onChange={(e) => setContactNumber(e.target.value)}
+                  suppressHydrationWarning
+                  className="input"
+                />
+              </div>
+
+              <div>
+                <button
+                  type="button"
+                  onClick={handleSaveProfile}
+                  className="btn btn-primary"
+                >
+                  Save changes
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <hr className="divider my-12" />
+
+          <section>
+            <h2 className="section-title">Change password</h2>
+
+            <div className="mt-5 grid gap-4">
+              <div>
+                <label className="field-label" htmlFor="profile-current-pass">
+                  Current password
+                </label>
+                <input
+                  id="profile-current-pass"
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  suppressHydrationWarning
+                  className="input"
+                />
+              </div>
+
+              <div>
+                <label className="field-label" htmlFor="profile-new-pass">
+                  New password
+                </label>
+                <input
+                  id="profile-new-pass"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="••••••••"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  suppressHydrationWarning
+                  className="input"
+                />
+              </div>
+
+              <div>
+                <label className="field-label" htmlFor="profile-confirm-pass">
+                  Confirm new password
+                </label>
+                <input
+                  id="profile-confirm-pass"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="••••••••"
+                  value={confirmNewPassword}
+                  onChange={(e) => setConfirmNewPassword(e.target.value)}
+                  suppressHydrationWarning
+                  className="input"
+                />
+              </div>
+
+              <div>
+                <button
+                  type="button"
+                  onClick={handleUpdatePassword}
+                  className="btn btn-primary"
+                >
+                  Update password
+                </button>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     </AuthGuard>

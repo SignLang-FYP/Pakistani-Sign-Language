@@ -22,7 +22,11 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [router]);
 
   if (loading) {
-    return <div className="h-screen flex items-center justify-center text-white">Loading...</div>;
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <p className="faint text-sm">Loading…</p>
+      </div>
+    );
   }
 
   return <>{children}</>;

@@ -1,118 +1,131 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import AuthGuard from "@/components/common/AuthGuard";
+import PageHeader from "@/components/common/PageHeader";
 import { colorThemes } from "@/data/colorThemes";
 import { useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { doc, setDoc } from "firebase/firestore";
+import { useModal } from "@/components/common/ModalProvider";
+import { useAppTheme } from "@/components/theme/useAppTheme";
 
 export default function ColorTheoryPage() {
-  const router = useRouter();
-  const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
+  const modal = useModal();
+
+  // useAppTheme is a live Firestore subscription, so the selected card and the
+  // rest of the UI both update the moment the save lands — no local mirror.
+  const activeTheme = useAppTheme();
+  const selectedTheme = activeTheme.id;
+
+  const [saving, setSaving] = useState<string | null>(null);
 
   async function saveTheme(themeId: string) {
-  if (!auth.currentUser) {
-    alert("User not logged in");
-    return;
-  }
+    if (!auth.currentUser) {
+      await modal.error("User not logged in");
+      return;
+    }
 
-  try {
-    await setDoc(
-      doc(db, "users", auth.currentUser.uid, "settings", "theme"),
-      {
-        themeId,
-        updatedAt: new Date().toISOString(),
-      },
-      { merge: true }
-    );
+    setSaving(themeId);
 
-    setSelectedTheme(themeId);
-    alert("Theme saved successfully.");
-  } catch (error: any) {
-    alert(error.message);
+    try {
+      await setDoc(
+        doc(db, "users", auth.currentUser.uid, "settings", "theme"),
+        {
+          themeId,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+
+      await modal.success("Theme saved successfully.", "Theme updated");
+    } catch (error: any) {
+      await modal.error(error.message);
+    } finally {
+      setSaving(null);
+    }
   }
-}
 
   return (
     <AuthGuard>
-      <div className="min-h-screen px-6 py-10">
-        <div className="mx-auto max-w-5xl">
+      <div className="page">
+        <div className="shell">
+          <PageHeader
+            eyebrow="Preferences"
+            title="Colour Theory"
+            description="Colour affects attention, comfort and how long a learner stays engaged. Pick the accent that feels easiest on your eyes."
+          />
 
-          <button
-            onClick={() => router.push("/home")}
-            className="rounded-xl bg-white px-5 py-2 font-bold text-[var(--theme-main)]"
-          >
-            ← Back
-          </button>
-
-          <h2 className="mt-6 text-3xl font-bold text-white text-center">
-            Color Theory
-          </h2>
-
-          <div className="mt-10 space-y-6 text-white">
-            <div className="rounded-2xl bg-white/20 p-6 backdrop-blur-md">
-              <h3 className="text-xl font-bold">What is Color Theory?</h3>
-              <p className="mt-3">
-                Color theory is the study of how colors affect perception,
-                attention, and emotions. In learning environments, colors can
-                influence focus, comfort, and engagement levels.
+          <section className="mt-12 grid gap-8 md:grid-cols-2">
+            <div>
+              <h2 className="section-title">Why it matters</h2>
+              <p className="lede mt-3">
+                Colour theory studies how colour affects perception, attention
+                and emotion. In a learning environment it influences focus,
+                comfort and engagement.
+              </p>
+              <p className="lede mt-3">
+                Calm tones — blue, green, soft purple — tend to feel relaxed and
+                focused. Brighter tones such as orange raise energy but can feel
+                intense over a long session.
               </p>
             </div>
 
-            <div className="rounded-2xl bg-white/20 p-6 backdrop-blur-md">
-              <h3 className="text-xl font-bold">
-                Colors and Learning Behavior
-              </h3>
-              <p className="mt-3">
-                Calm colors such as soft blue, green, and light purple are often
-                used to create a relaxed and focused environment. Bright colors
-                like orange can increase energy but may also feel intense for
-                some users.
+            <div className="card-muted">
+              <h2 className="text-lg">How this works here</h2>
+              <p className="muted mt-3 text-[15px] leading-relaxed">
+                The interface stays deliberately plain — white background, high
+                contrast text, no busy gradients — so nothing competes with the
+                signs you are learning.
               </p>
-              <p className="mt-3">
-                Every individual responds differently, so allowing users to
-                choose their preferred theme improves comfort and usability.
+              <p className="muted mt-3 text-[15px] leading-relaxed">
+                Your chosen colour is applied as a single accent, used for
+                highlights and primary actions across the whole app.
               </p>
             </div>
+          </section>
 
-            <div className="rounded-2xl bg-white/20 p-6 backdrop-blur-md">
-              <h3 className="text-xl font-bold">
-                Choose Your Preferred Theme
-              </h3>
-              <p className="mt-3">
-                You can select a color theme that feels most comfortable. This
-                will update the entire application appearance for your account.
-              </p>
+          <section className="mt-14">
+            <h2 className="section-title">Choose your accent</h2>
+
+            <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {colorThemes.map((theme) => {
+                const selected = selectedTheme === theme.id;
+
+                return (
+                  <button
+                    key={theme.id}
+                    type="button"
+                    onClick={() => saveTheme(theme.id)}
+                    aria-pressed={selected}
+                    className="card-interactive"
+                    style={
+                      selected
+                        ? { borderColor: theme.accent }
+                        : undefined
+                    }
+                  >
+                    <div className="flex items-center justify-between">
+                      <span
+                        aria-hidden="true"
+                        className="h-6 w-6 rounded-full"
+                        style={{ background: theme.accent }}
+                      />
+                      {saving === theme.id ? (
+                        <span className="tag">Saving…</span>
+                      ) : (
+                        selected && <span className="tag">Selected</span>
+                      )}
+                    </div>
+
+                    <h3 className="mt-4 text-base">{theme.name}</h3>
+                    <p className="muted mt-1 text-[13.5px] leading-relaxed">
+                      {theme.description}
+                    </p>
+                  </button>
+                );
+              })}
             </div>
-
-          </div>
-          <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-  {colorThemes.map((theme) => {
-    const selected = selectedTheme === theme.id;
-
-    return (
-      <div
-        key={theme.id}
-onClick={() => saveTheme(theme.id)}        className={`cursor-pointer rounded-2xl p-5 text-center shadow-md ${
-          selected ? "ring-4 ring-white" : ""
-        }`}
-        style={{
-          background: `linear-gradient(to bottom right, ${theme.from}, ${theme.via}, ${theme.to})`,
-        }}
-      >
-        <h3 className="text-lg font-bold text-white">{theme.name}</h3>
-        <p className="mt-2 text-sm text-white/90">{theme.description}</p>
-
-        {selected && (
-          <div className="mt-3 text-sm font-bold text-white">
-            Selected
-          </div>
-        )}
-      </div>
-    );
-  })}
-</div>
+          </section>
         </div>
       </div>
     </AuthGuard>

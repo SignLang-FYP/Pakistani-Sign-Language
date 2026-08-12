@@ -14,9 +14,19 @@ import {
   deleteDoc,
 } from "firebase/firestore";
 import { availableSigns } from "@/data/availableSigns";
+import { tests } from "@/data/tests";
+import { useCurrentUser } from "@/components/common/useCurrentUser";
+import { useModal } from "@/components/common/ModalProvider";
+import PageHeader from "@/components/common/PageHeader";
+import SignPicker from "@/components/common/SignPicker";
 
 export default function EvaluationPage() {
   const router = useRouter();
+  const modal = useModal();
+  const { user } = useCurrentUser();
+
+  // Built from data/tests.ts so new tests appear without touching the page.
+  const testIds = Object.keys(tests).map(Number).sort((a, b) => a - b);
 
   const [testsCompleted, setTestsCompleted] = useState<
     Record<string, { score: number; total: number }>
@@ -28,13 +38,13 @@ export default function EvaluationPage() {
 
   useEffect(() => {
     async function loadTestProgress() {
-      if (!auth.currentUser) return;
+      if (!user) return;
 
       try {
         const testsRef = doc(
           db,
           "users",
-          auth.currentUser.uid,
+          user.uid,
           "progress",
           "tests"
         );
@@ -52,17 +62,17 @@ export default function EvaluationPage() {
     }
 
     loadTestProgress();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     async function loadCustomTests() {
-      if (!auth.currentUser) return;
+      if (!user) return;
 
       try {
         const testsRef = collection(
           db,
           "users",
-          auth.currentUser.uid,
+          user.uid,
           "customTests"
         );
 
@@ -80,16 +90,16 @@ export default function EvaluationPage() {
     }
 
     loadCustomTests();
-  }, []);
+  }, [user]);
 
   async function handleCreateTest() {
     if (!auth.currentUser) {
-      alert("User not logged in");
+      await modal.error("User not logged in");
       return;
     }
 
     if (selectedSigns.length !== 5) {
-      alert("Please select exactly 5 signs.");
+      await modal.info("Please select exactly 5 signs.", "Selection incomplete");
       return;
     }
 
@@ -124,16 +134,21 @@ export default function EvaluationPage() {
       setSelectedSigns([]);
       setShowAddTest(false);
 
-      alert("Test created successfully.");
+      await modal.success("Test created successfully.", "Test created");
     } catch (error: any) {
-      alert(error.message);
+      await modal.error(error.message);
     }
   }
 
   async function handleDeleteTest(testId: string) {
     if (!auth.currentUser) return;
 
-    const confirmDelete = confirm("Delete this custom test?");
+    const confirmDelete = await modal.confirm({
+      title: "Delete test?",
+      message: "This custom test will be permanently deleted.",
+      confirmText: "Delete",
+      variant: "error",
+    });
     if (!confirmDelete) return;
 
     try {
@@ -143,38 +158,36 @@ export default function EvaluationPage() {
 
       setCustomTests((prev) => prev.filter((test) => test.id !== testId));
 
-      alert("Test deleted.");
+      await modal.success("Test deleted.", "Test deleted");
     } catch (error: any) {
-      alert(error.message);
+      await modal.error(error.message);
     }
   }
 
   return (
     <AuthGuard>
-      <div className="min-h-screen w-full px-6 py-10">
-        <div className="mx-auto w-full max-w-6xl">
-          <div className="flex items-center justify-between gap-4">
-            <button
-              onClick={() => router.push("/home")}
-              className="rounded-xl bg-white px-5 py-2 font-bold text-[var(--theme-main)]"
-            >
-              ← Back
-            </button>
+      <div className="page">
+        <div className="shell">
+          <PageHeader
+            eyebrow="Assessment"
+            title="Evaluation"
+            description="Take a scored test, or build your own from any five signs."
+            actions={
+              <button
+                onClick={() => setShowAddTest(true)}
+                className="btn btn-sm"
+              >
+                + New test
+              </button>
+            }
+          />
 
-            <h2 className="text-2xl font-bold text-white">Evaluation</h2>
-
-            <button
-              onClick={() => setShowAddTest(true)}
-              className="rounded-xl bg-white px-5 py-2 font-bold text-[var(--theme-main)]"
-            >
-              + Add Test
-            </button>
-          </div>
-
-          <div className="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {[1, 2].map((test) => {
+          <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {testIds.map((test, index) => {
               const previousTestCompleted =
-                test === 1 ? true : !!testsCompleted[`test${test - 1}`];
+                index === 0
+                  ? true
+                  : !!testsCompleted[`test${testIds[index - 1]}`];
 
               const isCompleted = !!testsCompleted[`test${test}`];
 
@@ -182,7 +195,7 @@ export default function EvaluationPage() {
                 <ProtectedCard
                   key={test}
                   title={`Test ${test}`}
-                  subtitle="PSL Evaluation Test"
+                  subtitle="Five signs, scored as you go."
                   locked={!previousTestCompleted}
                   completed={isCompleted}
                   onClick={() => router.push(`/evaluation/${test}`)}
@@ -194,7 +207,7 @@ export default function EvaluationPage() {
               <div key={test.id} className="relative">
                 <ProtectedCard
                   title={test.title || `Test ${index + 3}`}
-                  subtitle="PSL Evaluation Test"
+                  subtitle="Your custom test."
                   locked={false}
                   completed={!!testsCompleted[`custom_${test.id}`]}
                   onClick={() => router.push(`/evaluation/custom/${test.id}`)}
@@ -205,7 +218,7 @@ export default function EvaluationPage() {
                     e.stopPropagation();
                     handleDeleteTest(test.id);
                   }}
-                  className="absolute right-3 top-3 rounded-lg bg-red-600 px-3 py-1 text-sm font-bold text-white shadow"
+                  className="btn btn-sm btn-danger absolute right-3 top-3"
                 >
                   Delete
                 </button>
@@ -214,82 +227,20 @@ export default function EvaluationPage() {
           </div>
         </div>
 
-        {showAddTest && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-            <div className="w-full max-w-3xl rounded-2xl bg-white p-6 shadow-xl">
-              <h3 className="text-xl font-bold text-[var(--theme-main)]">
-                Select 5 Signs
-              </h3>
-
-              <p className="mt-2 text-sm text-gray-600">
-                Selected: {selectedSigns.length}/5
-              </p>
-
-              <div className="mt-4 max-h-[60vh] overflow-y-auto">
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-                  {availableSigns.map((sign) => {
-                    const selected = selectedSigns.includes(sign.id);
-
-                    return (
-                      <div
-                        key={sign.id}
-                        onClick={() => {
-                          if (selected) {
-                            setSelectedSigns((prev) =>
-                              prev.filter((id) => id !== sign.id)
-                            );
-                          } else if (selectedSigns.length < 5) {
-                            setSelectedSigns((prev) => [...prev, sign.id]);
-                          }
-                        }}
-                        className={`cursor-pointer rounded-xl border p-3 text-center transition ${
-                          selected
-                            ? "border-[var(--theme-main)] bg-orange-100"
-                            : "border-gray-300 hover:border-[var(--theme-main)]"
-                        }`}
-                      >
-                        <img
-                          src={sign.imagePath}
-                          alt={sign.modelLabel}
-                          className="mx-auto h-16 w-16 rounded-lg object-cover"
-                        />
-
-                        <div className="mt-2 text-2xl font-bold text-gray-900">
-                          {sign.name}
-                        </div>
-
-                        <div className="text-sm text-gray-500">
-                          {sign.modelLabel}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="mt-6 flex justify-between gap-4">
-                <button
-                  onClick={() => {
-                    setShowAddTest(false);
-                    setSelectedSigns([]);
-                  }}
-                  className="rounded-xl bg-gray-200 px-4 py-2 font-bold text-gray-700"
-                >
-                  Cancel
-                </button>
-
-                <button
-                  onClick={handleCreateTest}
-                  disabled={selectedSigns.length !== 5}
-                  className="rounded-xl bg-[var(--theme-main)] px-4 py-2 font-bold text-white disabled:opacity-50"
-                >
-                  Create Test
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <SignPicker
+          open={showAddTest}
+          title="Select five signs"
+          confirmText="Create test"
+          signs={availableSigns}
+          selected={selectedSigns}
+          onChange={setSelectedSigns}
+          onCancel={() => {
+            setShowAddTest(false);
+            setSelectedSigns([]);
+          }}
+          onConfirm={handleCreateTest}
+        />
       </div>
     </AuthGuard>
   );
-} 
+}

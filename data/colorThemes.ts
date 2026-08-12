@@ -1,36 +1,37 @@
+/**
+ * The interface is a light, near-monochrome surface. A colour theme only
+ * changes the single accent colour used for highlights, active states and
+ * primary actions — the page itself stays white and low-stimulus.
+ *
+ * `id` values are persisted in Firestore, so they must not be renamed.
+ */
 export const colorThemes = [
   {
     id: "orange",
     name: "Warm Orange",
-    description: "Bright, energetic theme currently used by SignLang.",
-    from: "#FF6D00",
-    via: "#FF8F00",
-    to: "#FFFFFF",
+    description: "Bright and energetic. The original SignLang accent.",
+    accent: "#E85D04",
   },
   {
     id: "calmBlue",
     name: "Calm Blue",
-    description: "Soft blue tones for a calm and focused interface.",
-    from: "#2563EB",
-    via: "#60A5FA",
-    to: "#FFFFFF",
+    description: "Soft blue for a calm, focused interface.",
+    accent: "#2563EB",
   },
   {
     id: "softGreen",
     name: "Soft Green",
-    description: "Gentle green tones for a natural and comfortable look.",
-    from: "#16A34A",
-    via: "#86EFAC",
-    to: "#FFFFFF",
+    description: "Gentle green for a natural, comfortable look.",
+    accent: "#0A8F4C",
   },
   {
     id: "lavender",
     name: "Lavender Comfort",
-    description: "Soft purple tones for a gentle and low-pressure feel.",
-    from: "#7C3AED",
-    via: "#C4B5FD",
-    to: "#FFFFFF",
+    description: "Muted purple for a gentle, low-pressure feel.",
+    accent: "#7C3AED",
   },
 ];
 
-export const defaultTheme = colorThemes[0];
+export type ColorTheme = (typeof colorThemes)[number];
+
+export const defaultTheme = colorThemes[2];

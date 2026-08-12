@@ -14,31 +14,20 @@ export default function ProtectedCard({
   onClick,
 }: ProtectedCardProps) {
   return (
-    <div
-      onClick={() => {
-        if (!locked) onClick();
-      }}
-      className={`rounded-2xl p-6 text-white shadow-xl transition ${
-        locked
-          ? "cursor-not-allowed bg-white/30"
-          : "cursor-pointer hover:scale-[1.02]"
-      }`}
-      style={
-        !locked
-          ? {
-              background: `linear-gradient(to bottom right, var(--theme-from), var(--theme-via))`,
-            }
-          : undefined
-      }
+    <button
+      type="button"
+      disabled={locked}
+      onClick={onClick}
+      className="card-interactive"
     >
-      <div className="flex items-center justify-between">
-        <h3 className="text-2xl font-bold">{title}</h3>
-        <span className="text-sm font-semibold">
-          {completed ? "✓" : locked ? "🔒" : ""}
-        </span>
+      <div className="flex items-start justify-between gap-3">
+        <h3 className="text-lg">{title}</h3>
+
+        {completed && <span className="tag tag-accent">Completed</span>}
+        {locked && <span className="tag">Locked</span>}
       </div>
 
-      <p className="mt-2 text-white/90">{subtitle}</p>
-    </div>
+      <p className="muted mt-1.5 text-[14.5px] leading-relaxed">{subtitle}</p>
+    </button>
   );
 }

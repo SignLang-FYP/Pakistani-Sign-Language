@@ -6,7 +6,16 @@ import AuthGuard from "@/components/common/AuthGuard";
 import { tests } from "@/data/tests";
 import { auth, db } from "@/lib/firebase";
 import { doc, setDoc } from "firebase/firestore";
-import { loadOnnxModel, predictFromLandmarks } from "@/app/lib/onnxModel";
+import { loadOnnxModel } from "@/app/lib/onnxModel";
+import { startHandDetectionLoop } from "@/app/lib/handDetectionLoop";
+import {
+  useStableSignMatch,
+  matchStatusText,
+} from "@/app/lib/useStableSignMatch";
+import { useModal } from "@/components/common/ModalProvider";
+import PageHeader from "@/components/common/PageHeader";
+import SignPanel from "@/components/practice/SignPanel";
+import CameraPanel from "@/components/practice/CameraPanel";
 import {
   HandLandmarker,
   FilesetResolver,
@@ -14,6 +23,7 @@ import {
 
 export default function EvaluationDetailPage() {
   const router = useRouter();
+  const modal = useModal();
   const params = useParams();
 
   const testId = Number(params.testId);
@@ -38,7 +48,11 @@ export default function EvaluationDetailPage() {
   const [pendingResult, setPendingResult] = useState<boolean | null>(null);
 
   if (!testSigns) {
-    return <div className="p-10 text-white">Test not found</div>;
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="muted text-sm">Test not found.</p>
+      </div>
+    );
   }
 
   const currentSign = testSigns[currentIndex];
@@ -117,53 +131,15 @@ export default function EvaluationDetailPage() {
   useEffect(() => {
     if (!handLandmarker || !videoRef.current) return;
 
-    let animationFrameId = 0;
-    let lastVideoTime = -1;
-
-    const detect = async () => {
-      const video = videoRef.current;
-
-      if (video && video.readyState >= 2 && !video.paused) {
-        if (video.currentTime !== lastVideoTime) {
-          lastVideoTime = video.currentTime;
-
-          const result = handLandmarker.detectForVideo(video, performance.now());
-
-          if (result.landmarks && result.landmarks.length > 0) {
-            setHandDetected(true);
-
-            const hand = result.landmarks[0];
-            const landmarks: number[] = [];
-
-            for (const lm of hand) {
-              landmarks.push(lm.x, lm.y, lm.z);
-            }
-
-            const prediction = await predictFromLandmarks(landmarks);
-
-            if (prediction) {
-              setPredictedLabel(prediction.label);
-              setPredictionConfidence(prediction.confidence);
-            } else {
-              setPredictedLabel("No Prediction");
-              setPredictionConfidence(0);
-            }
-          } else {
-            setHandDetected(false);
-            setPredictedLabel("None");
-            setPredictionConfidence(0);
-          }
-        }
-      }
-
-      animationFrameId = requestAnimationFrame(detect);
-    };
-
-    detect();
-
-    return () => {
-      cancelAnimationFrame(animationFrameId);
-    };
+    return startHandDetectionLoop({
+      handLandmarker,
+      getVideo: () => videoRef.current,
+      onUpdate: ({ handDetected, label, confidence }) => {
+        setHandDetected(handDetected);
+        setPredictedLabel(label);
+        setPredictionConfidence(confidence);
+      },
+    });
   }, [handLandmarker]);
 
   useEffect(() => {
@@ -191,39 +167,24 @@ export default function EvaluationDetailPage() {
   return () => clearInterval(timer);
 }, [currentIndex, isAdvancing, modelStatus]);
 
-  useEffect(() => {
-    if (modelStatus !== "Loaded") return;
-    if (!handDetected) {
-      setStatus("Performing...");
-      return;
-    }
-    if (isAdvancing) return;
-    if (!currentSign || !(currentSign as any).modelLabel || !predictedLabel) return;
-
-    const expectedLabel = String(
-      (currentSign as any).modelLabel
-    ).trim().toLowerCase();
-
-    const actualLabel = String(predictedLabel).trim().toLowerCase();
-
-    const isCorrectCurrentSign =
-      actualLabel === expectedLabel && predictionConfidence >= 0.99;
-
-    if (isCorrectCurrentSign) {
-  setStatus("Correct!");
-  setIsAdvancing(true);
-  setPendingResult(true);
-} else {
-  setStatus("Try Again");
-}
-  }, [
+  const matchState = useStableSignMatch({
+    expectedLabel: (currentSign as any)?.modelLabel,
     predictedLabel,
-    predictionConfidence,
+    confidence: predictionConfidence,
     handDetected,
-    modelStatus,
-    isAdvancing,
-    currentSign,
-  ]);
+    enabled: modelStatus === "Loaded" && !isAdvancing,
+    onMatch: () => {
+      setStatus("Correct!");
+      setIsAdvancing(true);
+      setPendingResult(true);
+    },
+  });
+
+  useEffect(() => {
+    if (isAdvancing) return;
+    setStatus(matchStatusText(matchState));
+  }, [matchState, isAdvancing]);
+
 
   useEffect(() => {
   if (pendingResult === null) return;
@@ -259,104 +220,53 @@ export default function EvaluationDetailPage() {
           );
         }
 
-        alert(`Test Completed! Score: ${finalScore}/${testSigns.length}`);
+        await modal.success(
+          `You scored ${finalScore} out of ${testSigns.length}.`,
+          "Test completed"
+        );
         router.push("/evaluation");
       } catch (error: any) {
-        alert(error.message);
+        await modal.error(error.message);
       }
     }
   }
 
   return (
     <AuthGuard>
-      <div className="min-h-screen w-full bg-gradient-to-br from-[var(--theme-main)] via-[var(--theme-main)] to-white px-6 py-10">
-        <div className="mx-auto w-full max-w-7xl">
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => router.push("/evaluation")}
-              className="rounded-xl bg-white px-5 py-2 font-bold text-[var(--theme-main)]"
-            >
-              ← Back
-            </button>
+      <div className="page">
+        <div className="shell">
+          <PageHeader
+            eyebrow={`Sign ${currentIndex + 1} of ${testSigns.length}`}
+            title={`Test ${testId}`}
+            backHref="/evaluation"
+            actions={<span className="tag">Score {score}</span>}
+          />
 
-            <h2 className="text-2xl font-bold text-white">
-              Test {testId} ({currentIndex + 1}/{testSigns.length})
-            </h2>
+          <div className="mt-10 grid grid-cols-1 gap-5 lg:grid-cols-2">
+            <SignPanel
+              name={currentSign.name}
+              meaning={currentSign.meaning}
+              timeLeft={timeLeft}
+            />
 
-            <div className="text-white font-bold">Score: {score}</div>
-          </div>
-
-          <div className="mt-12 grid grid-cols-1 gap-8 lg:grid-cols-2">
-            <div className="rounded-3xl bg-white/20 p-8 shadow-xl backdrop-blur-md">
-              <h3 className="text-5xl font-bold text-white">
-                {currentSign.name}
-              </h3>
-
-              <p className="mt-6 text-xl text-white/90">
-                {currentSign.meaning}
-              </p>
-
-              <div className="mt-10 text-center text-5xl font-bold text-white">
-                {timeLeft}s
-              </div>
-            </div>
-
-            <div className="rounded-3xl bg-white/20 p-8 shadow-xl backdrop-blur-md">
-              <div className="relative h-80 w-full overflow-hidden rounded-2xl bg-black/30">
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="h-full w-full object-cover"
-                />
-
-                {!cameraStarted && (
-                  <div className="absolute inset-0 flex items-center justify-center text-white font-semibold">
-                    Allow camera access...
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-6 rounded-2xl bg-white/80 px-6 py-4 text-center text-lg font-bold text-[var(--theme-main)]">
-                {status}
-
-                <div className="mt-2 text-sm text-gray-600">
-                  MediaPipe: {mediapipeReady ? "Loaded" : "Not Loaded"}
-                </div>
-
-                <div className="mt-1 text-sm text-gray-600">
-                  Hand: {handDetected ? "Detected" : "Not Detected"}
-                </div>
-
-                <div className="mt-1 text-sm text-gray-600">
-                  Model: {modelStatus}
-                </div>
-
-                <div className="mt-1 text-sm text-gray-600">
-                  Prediction: {predictedLabel}
-                </div>
-
-                <div className="mt-1 text-sm text-gray-600">
-                  Confidence: {(predictionConfidence * 100).toFixed(1)}%
-                </div>
-              </div>
-
-              <button
-                onClick={async () => {
-                  try {
-                    await loadOnnxModel();
-                    setModelStatus("Loaded");
-                  } catch (error) {
-                    console.log(error);
-                    setModelStatus("Failed");
-                  }
-                }}
-                className="mt-4 w-full rounded-xl bg-white py-3 font-bold text-[var(--theme-main)]"
-              >
-                Start
-              </button>
-            </div>
+            <CameraPanel
+              videoRef={videoRef}
+              cameraStarted={cameraStarted}
+              status={status}
+              handDetected={handDetected}
+              predictionConfidence={predictionConfidence}
+              modelStatus={modelStatus}
+              mediapipeReady={mediapipeReady}
+              onStart={async () => {
+                try {
+                  await loadOnnxModel();
+                  setModelStatus("Loaded");
+                } catch (error) {
+                  console.log(error);
+                  setModelStatus("Failed");
+                }
+              }}
+            />
           </div>
         </div>
       </div>

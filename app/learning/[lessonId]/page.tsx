@@ -6,7 +6,16 @@ import { lessons } from "@/data/lessons";
 import { useState, useEffect, useRef } from "react";
 import { auth, db } from "@/lib/firebase";
 import { doc, setDoc } from "firebase/firestore";
-import { loadOnnxModel, predictFromLandmarks } from "@/app/lib/onnxModel";
+import { loadOnnxModel } from "@/app/lib/onnxModel";
+import { startHandDetectionLoop } from "@/app/lib/handDetectionLoop";
+import {
+  useStableSignMatch,
+  matchStatusText,
+} from "@/app/lib/useStableSignMatch";
+import { useModal } from "@/components/common/ModalProvider";
+import PageHeader from "@/components/common/PageHeader";
+import SignPanel from "@/components/practice/SignPanel";
+import CameraPanel from "@/components/practice/CameraPanel";
 import {
   HandLandmarker,
   FilesetResolver,
@@ -14,6 +23,7 @@ import {
 
 export default function LessonDetailPage() {
   const router = useRouter();
+  const modal = useModal();
   const params = useParams();
 
   const lessonId = Number(params.lessonId); 
@@ -106,96 +116,42 @@ export default function LessonDetailPage() {
   useEffect(() => {
     if (!handLandmarker || !videoRef.current) return;
 
-    let animationFrameId = 0;
-    let lastVideoTime = -1;
+    return startHandDetectionLoop({
+      handLandmarker,
+      getVideo: () => videoRef.current,
+      onUpdate: ({ handDetected, label, confidence }) => {
+        setHandDetected(handDetected);
+        setPredictedLabel(label);
+        setPredictionConfidence(confidence);
+      },
+    });
+  }, [handLandmarker]);
 
-    const detect = async () => {
-      const video = videoRef.current;
+  const currentSign = lessonSigns?.[currentIndex];
+  
+  const matchState = useStableSignMatch({
+    expectedLabel: (currentSign as any)?.modelLabel,
+    predictedLabel,
+    confidence: predictionConfidence,
+    handDetected,
+    enabled: modelStatus === "Loaded" && !isAdvancing,
+    onMatch: () => {
+      setStatus("Correct!");
 
-      if (video && video.readyState >= 2 && !video.paused) {
-        if (video.currentTime !== lastVideoTime) {
-          lastVideoTime = video.currentTime;
-
-          const result = handLandmarker.detectForVideo(video, performance.now());
-
-          if (result.landmarks && result.landmarks.length > 0) {
-            setHandDetected(true);
-
-            const hand = result.landmarks[0];
-            const landmarks: number[] = [];
-
-            for (const lm of hand) {
-              landmarks.push(lm.x, lm.y, lm.z);
-            }
-
-            const prediction = await predictFromLandmarks(landmarks);
-
-            if (prediction) {
-              setPredictedLabel(prediction.label);
-              setPredictionConfidence(prediction.confidence);
-            } else {
-              setPredictedLabel("No Prediction");
-              setPredictionConfidence(0);
-            }
-          } else {
-            setHandDetected(false);
-            setPredictedLabel("None");
-            setPredictionConfidence(0);
-          }
-        }
+      if (correctSoundRef.current) {
+        correctSoundRef.current.currentTime = 0;
+        correctSoundRef.current.play().catch(() => {});
       }
 
-      animationFrameId = requestAnimationFrame(detect);
-    };
+      setShowCorrectTick(true);
+      setIsAdvancing(true);
+    },
+  });
 
-    detect();
-
-    return () => {
-      cancelAnimationFrame(animationFrameId);
-    };
-  }, [handLandmarker]);
- 
-  const currentSign = lessonSigns[currentIndex];
-  
   useEffect(() => {
-  if (modelStatus !== "Loaded") return;
-  if (!handDetected) {
-    setStatus("Performing...");
-    return;
-  }
-  if (isAdvancing) return;
-  if (!currentSign || !predictedLabel) return;
-
-  const expectedLabel = String(
-    (currentSign as any).modelLabel
-  ).trim().toLowerCase();
-
-  const actualLabel = String(predictedLabel).trim().toLowerCase();
-
-  const isCorrectCurrentSign =
-    actualLabel === expectedLabel && predictionConfidence >= 0.99;
-
-  if (isCorrectCurrentSign) {
-  setStatus("Correct!");
-
-  if (correctSoundRef.current) {
-    correctSoundRef.current.currentTime = 0;
-    correctSoundRef.current.play().catch(() => {});
-  }
-  setShowCorrectTick(true);
-
-  setIsAdvancing(true);
-} else {
-    setStatus("Try Again");
-  }
-}, [
-  predictedLabel,
-  predictionConfidence,
-  handDetected,
-  modelStatus,
-  isAdvancing,
-  currentSign,
-]);
+    if (isAdvancing) return;
+    setStatus(matchStatusText(matchState));
+  }, [matchState, isAdvancing]);
 
 useEffect(() => {
   if (!isAdvancing) return;
@@ -208,7 +164,11 @@ useEffect(() => {
 }, [isAdvancing]);
 
   if (!lessonSigns) {
-    return <div className="p-10 text-white">Lesson not found</div>;
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="muted text-sm">Lesson not found.</p>
+      </div>
+    );
   }
 
   
@@ -228,115 +188,50 @@ useEffect(() => {
           );
         }
 
-        alert("Lesson Completed!");
+        await modal.success("Lesson Completed!", "Well done");
         router.push("/learning");
       } catch (error: any) {
-        alert(error.message);
+        await modal.error(error.message);
       }
     }
   }
 
   return (
     <AuthGuard>
-      <div className="min-h-screen w-full bg-gradient-to-br from-[var(--theme-main)] via-[var(--theme-main)] to-white px-6 py-10">
-        <div className="mx-auto w-full max-w-7xl">
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => router.push("/learning")}
-              className="rounded-xl bg-white px-5 py-2 font-bold text-[var(--theme-main)]"
-            >
-              ← Back
-            </button>
+      <div className="page">
+        <div className="shell">
+          <PageHeader
+            eyebrow={`Sign ${currentIndex + 1} of ${lessonSigns.length}`}
+            title={`Lesson ${lessonId}`}
+            backHref="/learning"
+          />
 
-            <h2 className="text-2xl font-bold text-white">
-              Lesson {lessonId} ({currentIndex + 1}/5)
-            </h2>
+          <div className="mt-10 grid grid-cols-1 gap-5 lg:grid-cols-2">
+            <SignPanel
+              name={currentSign.name}
+              meaning={currentSign.meaning}
+              imagePath={currentSign.imagePath}
+            />
 
-            <div />
-          </div>
-
-          <div className="mt-12 grid grid-cols-1 gap-8 lg:grid-cols-2">
-            <div className="rounded-3xl bg-white/20 p-8 shadow-xl backdrop-blur-md">
-              <div className="h-80 w-full overflow-hidden rounded-2xl bg-white/70">
-                <img
-                  src={currentSign.imagePath}
-                  alt={currentSign.name}
-                  className="h-full w-full object-cover"
-                  onError={(e) => {
-                    e.currentTarget.style.display = "none";
-                  }}
-                />
-              </div>
-
-              <h3 className="mt-6 text-3xl font-bold text-white">
-                {currentSign.name}
-              </h3>
-
-              <p className="mt-3 text-lg text-white/90">
-                {currentSign.meaning}
-              </p>
-            </div>
-
-            <div className="rounded-3xl bg-white/20 p-8 shadow-xl backdrop-blur-md">
-              <div className="relative h-80 w-full overflow-hidden rounded-2xl bg-black/30">
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="h-full w-full object-cover"
-                />
-
-                {showCorrectTick && (
-  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-    <div className="animate-pop">
-      <div className="flex h-24 w-24 items-center justify-center rounded-full bg-green-500 text-5xl text-white shadow-lg">
-        ✓
-      </div>
-    </div>
-  </div>
-)}
-
-                {!cameraStarted && (
-                  <div className="absolute inset-0 flex items-center justify-center text-white font-semibold">
-                    Allow camera access...
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-6 rounded-2xl bg-white/80 px-6 py-4 text-center text-lg font-bold text-[var(--theme-main)]">
-                {status}
-
-                
-
-                <div className="mt-1 text-sm text-gray-600">
-                  Hand: {handDetected ? "Detected" : "Not Detected"}
-                </div>
-
-                
-
-                
-
-                <div className="mt-1 text-sm text-gray-600">
-                  Confidence: {(predictionConfidence * 100).toFixed(1)}%
-                </div>
-              </div>
-
-              <button
-                onClick={async () => {
-                  try {
-                    await loadOnnxModel();
-                    setModelStatus("Loaded");
-                  } catch (error) {
-                    console.log(error);
-                    setModelStatus("Failed");
-                  }
-                }}
-                className="mt-4 w-full rounded-xl bg-white py-3 font-bold text-[var(--theme-main)]"
-              >
-                Start
-              </button>
-            </div>
+            <CameraPanel
+              videoRef={videoRef}
+              cameraStarted={cameraStarted}
+              status={status}
+              handDetected={handDetected}
+              predictionConfidence={predictionConfidence}
+              modelStatus={modelStatus}
+              showCorrectTick={showCorrectTick}
+              mediapipeReady={mediapipeReady}
+              onStart={async () => {
+                try {
+                  await loadOnnxModel();
+                  setModelStatus("Loaded");
+                } catch (error) {
+                  console.log(error);
+                  setModelStatus("Failed");
+                }
+              }}
+            />
           </div>
         </div>
       </div>

@@ -15,20 +15,16 @@ export default function FeatureCard({
   icon: Icon,
 }: FeatureCardProps) {
   return (
-    <Link
-      href={href}
-      className="rounded-2xl p-6 text-white shadow-xl transition hover:scale-[1.02]"
-      style={{
-        background:
-          "linear-gradient(to bottom right, var(--theme-from), var(--theme-via))",
-      }}
-    >
-      <div className="mb-4 text-4xl">
+    <Link href={href} className="card-interactive group">
+      <div
+        className="text-xl text-[var(--accent)]"
+        aria-hidden="true"
+      >
         <Icon />
       </div>
 
-      <h3 className="text-2xl font-bold">{title}</h3>
-      <p className="mt-2 text-white/90">{subtitle}</p>
+      <h3 className="mt-4 text-lg">{title}</h3>
+      <p className="muted mt-1.5 text-[14.5px] leading-relaxed">{subtitle}</p>
     </Link>
   );
 }

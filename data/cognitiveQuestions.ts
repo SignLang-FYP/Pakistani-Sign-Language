@@ -8,6 +8,12 @@ export type CognitiveQuestion = {
     | "response"
     | "engagement";
   question: string;
+  /**
+   * True when a HIGH answer means WORSE performance ("how often did the student
+   * get distracted?"). Scoring must flip these, otherwise they cancel out the
+   * positively-worded questions in the same category.
+   */
+  invert?: boolean;
   options: {
     label: string;
     score: number;
@@ -34,6 +40,7 @@ export const cognitiveQuestions: CognitiveQuestion[] = [
     id: "q2",
     category: "attention",
     question: "How often did the student get distracted?",
+    invert: true,
     options: scale,
   },
   {
@@ -60,6 +67,7 @@ export const cognitiveQuestions: CognitiveQuestion[] = [
     id: "q6",
     category: "memory",
     question: "How easily did the student forget signs?",
+    invert: true,
     options: scale,
   },
 
@@ -94,6 +102,7 @@ export const cognitiveQuestions: CognitiveQuestion[] = [
     id: "q11",
     category: "learning",
     question: "How much repetition was needed to learn a sign?",
+    invert: true,
     options: scale,
   },
   {
@@ -114,6 +123,7 @@ export const cognitiveQuestions: CognitiveQuestion[] = [
     id: "q14",
     category: "response",
     question: "How often did the student hesitate before responding?",
+    invert: true,
     options: scale,
   },
   {

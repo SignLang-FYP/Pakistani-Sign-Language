@@ -1,7 +1,8 @@
 "use client";
 
-import { useRouter, useParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import AuthGuard from "@/components/common/AuthGuard";
+import PageHeader from "@/components/common/PageHeader";
 
 const tutorialVideos: Record<
   string,
@@ -117,7 +118,6 @@ const tutorialVideos: Record<
 };
 
 export default function TutorialCategoryPage() {
-  const router = useRouter();
   const params = useParams();
   const category = String(params.category);
 
@@ -125,47 +125,43 @@ export default function TutorialCategoryPage() {
 
   return (
     <AuthGuard>
-      <div className="min-h-screen px-6 py-10">
-        <div className="mx-auto max-w-6xl">
-          <button
-            onClick={() => router.push("/tutorials")}
-            className="rounded-xl bg-white px-5 py-2 font-bold text-[var(--theme-main)]"
-          >
-            ← Back
-          </button>
+      <div className="page">
+        <div className="shell">
+          <PageHeader
+            eyebrow="Tutorials"
+            title={`${category.charAt(0).toUpperCase()}${category.slice(1)}`}
+            description={
+              videos.length > 0
+                ? `${videos.length} ${videos.length === 1 ? "video" : "videos"} in this category.`
+                : undefined
+            }
+            backHref="/tutorials"
+          />
 
-          <h2 className="mt-6 text-center text-3xl font-bold text-white capitalize">
-            {category} Tutorials
-          </h2>
+          {videos.length === 0 ? (
+            <div className="card-muted mt-10 text-center">
+              <p className="muted">No videos added yet for this category.</p>
+            </div>
+          ) : (
+            <div className="mt-10 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {videos.map((video, index) => (
+                <figure key={index} className="card">
+                  <video
+                    controls
+                    preload="metadata"
+                    className="h-[190px] w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] object-cover"
+                  >
+                    <source src={video.videoPath} type="video/mp4" />
+                    Your browser does not support the video tag.
+                  </video>
 
-
-            <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {videos.map((video, index) => (
-              <div
-                key={index}
-                className="mx-auto max-w-sm rounded-2xl bg-white p-3 shadow-md"
-                >
-                <h3 className="mb-4 text-xl font-bold text-[var(--theme-main)]">
-                  {video.title}
-                </h3>
-
-                <video
-                controls
-                className="w-full rounded-lg"
-                style={{ height: "200px", objectFit: "cover" }}
-                >
-                  <source src={video.videoPath} type="video/mp4" />
-                  Your browser does not support the video tag.
-                </video>
-              </div>
-            ))}
-
-            {videos.length === 0 && (
-              <div className="rounded-2xl bg-white p-6 text-center font-semibold text-[var(--theme-main)]">
-                No videos added yet for this category.
-              </div>
-            )}
-          </div>
+                  <figcaption className="mt-4 text-[15px] font-medium">
+                    {video.title}
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </AuthGuard>

@@ -1,0 +1,19 @@
+rules_version = '2';
+
+// A Firebase web API key is public by design — it identifies the project, it
+// does not authorise anything. These rules are what actually protect the data.
+//
+// Deploy with:  firebase deploy --only firestore:rules
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Every document this app writes lives under /users/{uid}/..., so a signed
+    // in account may only ever touch its own subtree.
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == userId;
+    }
+
+    // Anything not matched above is denied. Do not add a catch-all rule.
+  }
+}

@@ -1,24 +1,26 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import AuthGuard from "@/components/common/AuthGuard";
-import { auth, db } from "@/lib/firebase";
+import PageHeader from "@/components/common/PageHeader";
+import { db } from "@/lib/firebase";
+import { useCurrentUser } from "@/components/common/useCurrentUser";
 import { doc, getDoc } from "firebase/firestore";
+import { lessons } from "@/data/lessons";
+import { tests } from "@/data/tests";
 
 export default function ProgressPage() {
-  const router = useRouter();
-
+  const { user } = useCurrentUser();
   const [lessonsCompleted, setLessonsCompleted] = useState<Record<string, boolean>>({});
   const [testsCompleted, setTestsCompleted] = useState<Record<string, { score: number; total: number }>>({});
 
   useEffect(() => {
     async function loadProgress() {
-      if (!auth.currentUser) return;
+      if (!user) return;
 
       try {
-        const lessonsRef = doc(db, "users", auth.currentUser.uid, "progress", "lessons");
-        const testsRef = doc(db, "users", auth.currentUser.uid, "progress", "tests");
+        const lessonsRef = doc(db, "users", user.uid, "progress", "lessons");
+        const testsRef = doc(db, "users", user.uid, "progress", "tests");
 
         const lessonsSnap = await getDoc(lessonsRef);
         const testsSnap = await getDoc(testsRef);
@@ -38,88 +40,117 @@ export default function ProgressPage() {
     }
 
     loadProgress();
-  }, []);
+  }, [user]);
 
-  const completedLessonCount = Object.values(lessonsCompleted).filter(Boolean).length;
-  const completedTestCount = Object.keys(testsCompleted).length;
+  // Derived from the actual catalogues so the denominators can never drift
+  // out of sync with how many lessons/tests really exist.
+  const lessonIds = Object.keys(lessons).map(Number).sort((a, b) => a - b);
+  const testIds = Object.keys(tests).map(Number).sort((a, b) => a - b);
+
+  const completedLessonCount = lessonIds.filter(
+    (id) => lessonsCompleted[`lesson${id}`]
+  ).length;
+  const completedTestCount = testIds.filter(
+    (id) => testsCompleted[`test${id}`]
+  ).length;
+
+  const totalItems = lessonIds.length + testIds.length;
   const totalCompleted = completedLessonCount + completedTestCount;
-  const progressPercent = (totalCompleted / 10) * 100;
+  const progressPercent =
+    totalItems > 0 ? (totalCompleted / totalItems) * 100 : 0;
 
   return (
     <AuthGuard>
-      <div className="min-h-screen w-full bg-gradient-to-br from-[var(--theme-main)] via-[var(--theme-main)] to-white px-6 py-10">
-        <div className="mx-auto w-full max-w-6xl">
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => router.push("/home")}
-              className="rounded-xl bg-white px-5 py-2 font-bold text-[var(--theme-main)]"
+      <div className="page">
+        <div className="shell">
+          <PageHeader
+            eyebrow="Progress"
+            title="Your progress"
+            description="Lessons and tests you have completed so far."
+          />
+
+          <section className="mt-10">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <div className="stat">
+                <p className="stat-value">
+                  {completedLessonCount}/{lessonIds.length}
+                </p>
+                <p className="stat-label">Lessons</p>
+              </div>
+              <div className="stat">
+                <p className="stat-value">
+                  {completedTestCount}/{testIds.length}
+                </p>
+                <p className="stat-label">Tests</p>
+              </div>
+              <div className="stat">
+                <p className="stat-value">{Math.round(progressPercent)}%</p>
+                <p className="stat-label">Overall</p>
+              </div>
+            </div>
+
+            <div
+              className="mt-6 h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-2)]"
+              role="progressbar"
+              aria-valuenow={Math.round(progressPercent)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="Overall progress"
             >
-              ← Back
-            </button>
-
-            <h2 className="text-2xl font-bold text-white">Your Progress</h2>
-
-            <div />
-          </div>
-
-          <div className="mt-12 rounded-3xl bg-white/20 p-8 shadow-xl backdrop-blur-md">
-            <div className="text-center">
-              <h3 className="text-3xl font-bold text-white">
-                {completedLessonCount} of 5 Lessons · {completedTestCount} of 5 Tests
-              </h3>
-
-              <div className="mx-auto mt-6 h-4 w-full max-w-2xl rounded-full bg-white/40">
-                <div
-                  className="h-4 rounded-full bg-white transition-all duration-500"
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
+              <div
+                className="h-full rounded-full bg-[var(--accent)] transition-all duration-500"
+                style={{ width: `${progressPercent}%` }}
+              />
             </div>
+          </section>
 
-            <div className="mt-12">
-              <h4 className="text-2xl font-bold text-white">Lessons Completed</h4>
+          <section className="mt-14">
+            <h2 className="section-title">Lessons</h2>
 
-              <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-                {[1, 2, 3, 4, 5].map((lesson) => {
-                  const isCompleted = lessonsCompleted[`lesson${lesson}`];
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              {lessonIds.map((lesson) => {
+                const isCompleted = lessonsCompleted[`lesson${lesson}`];
 
-                  return (
-                    <div
-                      key={lesson}
-                      className="rounded-2xl bg-white/80 p-4 text-center shadow-md"
+                return (
+                  <div key={lesson} className="card">
+                    <p className="text-[15px] font-medium">Lesson {lesson}</p>
+                    <p
+                      className={`mt-1 text-[13.5px] ${
+                        isCompleted ? "text-[var(--accent)]" : "faint"
+                      }`}
                     >
-                      <p className="font-bold text-[var(--theme-main)]">Lesson {lesson}</p>
-                      <p className="mt-2 text-gray-600">
-                        {isCompleted ? "Completed" : "Locked"}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
+                      {isCompleted ? "Completed" : "Not completed"}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
+          </section>
 
-            <div className="mt-12">
-              <h4 className="text-2xl font-bold text-white">Tests Completed</h4>
+          <section className="mt-14">
+            <h2 className="section-title">Tests</h2>
 
-              <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-                {[1, 2, 3, 4, 5].map((test) => {
-                  const result = testsCompleted[`test${test}`];
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              {testIds.map((test) => {
+                const result = testsCompleted[`test${test}`];
 
-                  return (
-                    <div
-                      key={test}
-                      className="rounded-2xl bg-white/80 p-4 text-center shadow-md"
+                return (
+                  <div key={test} className="card">
+                    <p className="text-[15px] font-medium">Test {test}</p>
+                    <p
+                      className={`mt-1 text-[13.5px] ${
+                        result ? "text-[var(--accent)]" : "faint"
+                      }`}
                     >
-                      <p className="font-bold text-[var(--theme-main)]">Test {test}</p>
-                      <p className="mt-2 text-gray-600">
-                        {result ? `${result.score}/${result.total}` : "Not Attempted"}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
+                      {result
+                        ? `Scored ${result.score}/${result.total}`
+                        : "Not attempted"}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
-          </div>
+          </section>
         </div>
       </div>
     </AuthGuard>

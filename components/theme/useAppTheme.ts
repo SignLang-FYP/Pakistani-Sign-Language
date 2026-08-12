@@ -3,49 +3,49 @@
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore";
 import { colorThemes, defaultTheme } from "@/data/colorThemes";
 
 export function useAppTheme() {
   const [theme, setTheme] = useState(defaultTheme);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    // Tracks the Firestore listener for whichever user is currently signed in.
+    let unsubscribeTheme: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      unsubscribeTheme?.();
+      unsubscribeTheme = null;
+
       if (!user) {
         setTheme(defaultTheme);
         return;
       }
 
-      try {
-        const themeRef = doc(
-          db,
-          "users",
-          user.uid,
-          "settings",
-          "theme"
-        );
+      const themeRef = doc(db, "users", user.uid, "settings", "theme");
 
-        const snap = await getDoc(themeRef);
+      // A live subscription rather than a one-shot read: saving a new theme on
+      // the Colour Theory page now applies immediately, instead of only after
+      // a hard refresh or a re-login.
+      unsubscribeTheme = onSnapshot(
+        themeRef,
+        (snap) => {
+          const themeId = snap.exists() ? snap.data().themeId : null;
+          const selected = colorThemes.find((t) => t.id === themeId);
 
-        if (snap.exists()) {
-          const data = snap.data();
-          const selectedTheme = colorThemes.find(
-            (t) => t.id === data.themeId
-          );
-
-          if (selectedTheme) {
-            setTheme(selectedTheme);
-          }
-        } else {
+          setTheme(selected ?? defaultTheme);
+        },
+        (error) => {
+          console.log(error);
           setTheme(defaultTheme);
         }
-      } catch (error) {
-        console.log(error);
-        setTheme(defaultTheme);
-      }
+      );
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeTheme?.();
+      unsubscribeAuth();
+    };
   }, []);
 
   return theme;

@@ -5,6 +5,7 @@ import { OrbitControls, Text, useAnimations, useGLTF } from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { useRouter } from "next/navigation";
+import AuthGuard from "@/components/common/AuthGuard";
 
 type Lane = -1 | 0 | 1;
 
@@ -143,6 +144,8 @@ function GameScene() {
   const bgMusicRef = useRef<HTMLAudioElement | null>(null);
 
   const [musicStarted, setMusicStarted] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const pausedRef = useRef(false);
 
   const [obstacles, setObstacles] = useState<
     { id: number; lane: Lane; z: number }[]
@@ -184,6 +187,21 @@ function GameScene() {
   }, [jumping]);
 
   useEffect(() => {
+    pausedRef.current = paused;
+
+    if (paused) {
+      bgMusicRef.current?.pause();
+    } else if (musicStarted && !gameOverRef.current) {
+      bgMusicRef.current?.play().catch(() => {});
+    }
+  }, [paused, musicStarted]);
+
+  const togglePause = () => {
+    if (gameOverRef.current) return;
+    setPaused((prev) => !prev);
+  };
+
+  useEffect(() => {
     gameOverRef.current = gameOver;
 
     if (gameOver) {
@@ -210,7 +228,7 @@ function GameScene() {
   };
 
   const jump = () => {
-    if (!isGroundedRef.current || gameOverRef.current) return;
+    if (!isGroundedRef.current || gameOverRef.current || pausedRef.current) return;
 
     startMusic();
 
@@ -220,16 +238,20 @@ function GameScene() {
   };
 
   const moveLeft = () => {
+    if (pausedRef.current || gameOverRef.current) return;
     startMusic();
     setLane((prev) => (prev > -1 ? ((prev - 1) as Lane) : prev));
   };
 
   const moveRight = () => {
+    if (pausedRef.current || gameOverRef.current) return;
     startMusic();
     setLane((prev) => (prev < 1 ? ((prev + 1) as Lane) : prev));
   };
 
   const resetGame = () => {
+    setPaused(false);
+    pausedRef.current = false;
     setLane(0);
     setJumping(false);
     setGameOver(false);
@@ -250,22 +272,31 @@ function GameScene() {
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      // Arrows and space scroll the page by default, which fights the game.
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(e.key)) {
+        e.preventDefault();
+      }
+
       if (e.key === "ArrowLeft") moveLeft();
       if (e.key === "ArrowRight") moveRight();
       if (e.key === "ArrowUp" || e.key === " ") jump();
+
+      if (e.key === "p" || e.key === "P" || e.key === "Escape") {
+        togglePause();
+      }
 
       if (e.key === "Enter" && gameOverRef.current) {
         resetGame();
       }
     };
 
-    window.addEventListener("keydown", handleKey);
+    window.addEventListener("keydown", handleKey, { passive: false });
     return () => window.removeEventListener("keydown", handleKey);
   }, [musicStarted]);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      if (gameOverRef.current) return;
+      if (gameOverRef.current || pausedRef.current) return;
 
       const lanes: Lane[] = [-1, 0, 1];
 
@@ -292,7 +323,7 @@ function GameScene() {
   }, [signs]);
 
   useFrame(() => {
-    if (gameOverRef.current) return;
+    if (gameOverRef.current || pausedRef.current) return;
 
     if (!isGroundedRef.current) {
       playerYRef.current += jumpVelocityRef.current;
@@ -384,17 +415,23 @@ function GameScene() {
       <ambientLight intensity={0.8} />
       <directionalLight position={[0, 8, 5]} intensity={1.5} />
 
-      <Text position={[-4, 3, 2]} fontSize={0.6} color="#ffffff">
+      <Text position={[-4, 3, 2]} fontSize={0.6} color="#1a1a1a">
         Score: {score}
       </Text>
 
-      <Text position={[4, 3, 2]} fontSize={0.42} color="#ffffff">
+      <Text position={[4, 3, 2]} fontSize={0.42} color="#6b6b6b">
         Record: {highScore}
       </Text>
 
       {gameOver && (
-        <Text position={[0, 3.5, 1]} fontSize={0.65} color="#ffffff">
-          Game Over - Press Enter
+        <Text position={[0, 3.5, 1]} fontSize={0.65} color="#1a1a1a">
+          Game Over — Press Enter
+        </Text>
+      )}
+
+      {paused && !gameOver && (
+        <Text position={[0, 3.5, 1]} fontSize={0.6} color="#1a1a1a">
+          Paused — Press P to resume
         </Text>
       )}
 
@@ -406,42 +443,62 @@ function GameScene() {
 export default function GamePage() {
   const router = useRouter();
 
+  // The on-screen pads drive the game by dispatching the same keys the
+  // keyboard handler listens for.
+  const sendKey = (key: string) => (event: React.MouseEvent<HTMLButtonElement>) => {
+    // Without this the button keeps focus, and a later space press would
+    // re-activate it instead of (only) jumping.
+    event.currentTarget.blur();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key }));
+  };
+
   return (
-    <main className="relative h-screen w-full overflow-hidden bg-gradient-to-b from-var(--theme-main)-400 to-var(--theme-main)-100">
-      <button
-  onClick={() => router.push("/home")}
-  className="absolute top-6 left-6 z-[100] rounded-xl bg-white px-5 py-2 font-bold text-[var(--theme-main)] shadow-lg"
->
-  ← Back
-</button>
-      <Canvas camera={{ position: [0, 4, 8], fov: 55 }}>
-        <GameScene />
-      </Canvas>
-
-      <div className="absolute bottom-6 left-1/2 z-50 flex -translate-x-1/2 gap-4">
+    <AuthGuard>
+      <main className="relative h-screen w-full overflow-hidden bg-[var(--surface)]">
         <button
-          onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft" }))}
-          className="rounded-xl bg-white px-5 py-3 font-bold text-orange-700 shadow"
+          onClick={() => router.push("/home")}
+          className="btn btn-sm absolute left-6 top-6 z-[100]"
         >
-          ← Left
+          ← Back
         </button>
 
         <button
-          onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp" }))}
-          className="rounded-xl bg-orange-600 px-5 py-3 font-bold text-white shadow"
+          onClick={sendKey("p")}
+          className="btn btn-sm absolute right-6 top-6 z-[100]"
         >
-          ↑ Jump
+          Pause (P)
         </button>
 
-        <button
-          onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }))}
-          className="rounded-xl bg-white px-5 py-3 font-bold text-orange-700 shadow"
-        >
-          Right →
-        </button>
-      </div>
-    </main>
+        <Canvas camera={{ position: [0, 4, 8], fov: 55 }}>
+          <GameScene />
+        </Canvas>
+
+        <div className="absolute bottom-8 left-1/2 z-50 flex -translate-x-1/2 gap-2">
+          <button
+            onClick={sendKey("ArrowLeft")}
+            className="btn"
+            aria-label="Move left"
+          >
+            ← Left
+          </button>
+
+          <button
+            onClick={sendKey("ArrowUp")}
+            className="btn btn-primary"
+            aria-label="Jump"
+          >
+            ↑ Jump
+          </button>
+
+          <button
+            onClick={sendKey("ArrowRight")}
+            className="btn"
+            aria-label="Move right"
+          >
+            Right →
+          </button>
+        </div>
+      </main>
+    </AuthGuard>
   );
-} 
-
-useGLTF.preload("/models/runner.glb");
+}

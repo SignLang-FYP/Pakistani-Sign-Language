@@ -1,31 +1,37 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useRef } from "react";
 import AuthGuard from "@/components/common/AuthGuard";
+import PageHeader from "@/components/common/PageHeader";
 import { cognitiveQuestions } from "@/data/cognitiveQuestions";
+import { lessons } from "@/data/lessons";
+import { tests } from "@/data/tests";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { collection, addDoc, getDocs } from "firebase/firestore";
 import jsPDF from "jspdf";
+import { useCurrentUser } from "@/components/common/useCurrentUser";
 
 export default function CognitiveAnalysisPage() {
-  const router = useRouter();
-
+  const { user } = useCurrentUser();
+  
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [scorePreview, setScorePreview] = useState<Record<string, number> | null>(null);
+  // Which saved report the preview is showing, so the PDF carries its real date.
+  const [previewCreatedAt, setPreviewCreatedAt] = useState<string | undefined>(undefined);
+  const previewRef = useRef<HTMLElement | null>(null);
   const [lessonsCompleted, setLessonsCompleted] = useState<Record<string, boolean>>({});
 const [testsCompleted, setTestsCompleted] = useState<Record<string, { score: number; total: number }>>({});
 const [savedReports, setSavedReports] = useState<any[]>([]);
 
 async function loadSavedReports() {
-  if (!auth.currentUser) return;
+  if (!user) return;
 
   try {
     const ref = collection(
       db,
       "users",
-      auth.currentUser.uid,
+      user.uid,
       "cognitiveReports"
     );
 
@@ -73,7 +79,7 @@ This report is intended for educational support and progress tracking only. It s
 `;
 }
 
-function downloadPDF(scores: Record<string, number>) {
+function downloadPDF(scores: Record<string, number>, createdAt?: string) {
   const doc = new jsPDF();
   const reportText = generateReportText(scores);
 
@@ -81,7 +87,8 @@ function downloadPDF(scores: Record<string, number>) {
   doc.text("Cognitive Analysis Report", 20, 20);
 
   doc.setFontSize(11);
-  doc.text(`Date: ${new Date().toLocaleString()}`, 20, 30);
+  const reportDate = createdAt ? new Date(createdAt) : new Date();
+  doc.text(`Date: ${reportDate.toLocaleString()}`, 20, 30);
 
   const lines = doc.splitTextToSize(reportText, 170);
 
@@ -168,16 +175,16 @@ function downloadPDF(scores: Record<string, number>) {
 }
 useEffect(() => {
   loadSavedReports();
-}, []);
+}, [user]);
 
 
 useEffect(() => {
   async function loadProgressData() {
-    if (!auth.currentUser) return;
+    if (!user) return;
 
     try {
-      const lessonsRef = doc(db, "users", auth.currentUser.uid, "progress", "lessons");
-      const testsRef = doc(db, "users", auth.currentUser.uid, "progress", "tests");
+      const lessonsRef = doc(db, "users", user.uid, "progress", "lessons");
+      const testsRef = doc(db, "users", user.uid, "progress", "tests");
 
       const lessonsSnap = await getDoc(lessonsRef);
       const testsSnap = await getDoc(testsRef);
@@ -197,7 +204,7 @@ useEffect(() => {
   }
 
   loadProgressData();
-}, []);
+}, [user]);
 
 async function saveAnalysis(scores: Record<string, number>) {
   if (!auth.currentUser) return;
@@ -240,7 +247,10 @@ async function saveAnalysis(scores: Record<string, number>) {
   cognitiveQuestions.forEach((q) => {
     const score = answers[q.id];
     if (score) {
-      categories[q.category].push(score);
+      // Negatively-worded questions ("how often did the student get
+      // distracted?") run the opposite way, so flip them onto the same
+      // 1 = worst, 5 = best scale before averaging.
+      categories[q.category].push(q.invert ? 6 - score : score);
     }
   });
 
@@ -267,15 +277,25 @@ function calculateAppPerformanceScores() {
   const totalTestScore = testResults.reduce((sum, test) => sum + test.score, 0);
   const totalTestMarks = testResults.reduce((sum, test) => sum + test.total, 0);
 
-  const lessonProgressScore = Math.round((completedLessonCount / 5) * 100);
+  const totalLessons = Object.keys(lessons).length;
+  const totalTests = Object.keys(tests).length;
+
+  const lessonProgressScore =
+    totalLessons > 0
+      ? Math.round((completedLessonCount / totalLessons) * 100)
+      : 0;
 
   const testPerformanceScore =
     totalTestMarks > 0 ? Math.round((totalTestScore / totalTestMarks) * 100) : 0;
 
   const learningConsistencyScore =
     testResults.length > 0
-      ? Math.round(((completedLessonCount + testResults.length) / 10) * 100)
-      : Math.round((completedLessonCount / 5) * 100);
+      ? Math.round(
+          ((completedLessonCount + testResults.length) /
+            Math.max(1, totalLessons + totalTests)) *
+            100
+        )
+      : lessonProgressScore;
 
   return {
     lessonProgress: lessonProgressScore,
@@ -284,32 +304,29 @@ function calculateAppPerformanceScores() {
   };
 }
 
+  const allAnswered = Object.keys(answers).length === cognitiveQuestions.length;
+
   return (
     <AuthGuard>
-      <div className="min-h-screen px-6 py-10">
-        <div className="mx-auto max-w-4xl">
-          <button
-            onClick={() => router.push("/home")}
-            className="rounded-xl bg-white px-5 py-2 font-bold text-[var(--theme-main)]"
-          >
-            ← Back
-          </button>
+      <div className="page">
+        <div className="shell">
+          <PageHeader
+            eyebrow="Insights"
+            title="Cognitive analysis"
+            description="Answer a short questionnaire. It is combined with your lesson and test performance to produce a report."
+          />
 
-          <h2 className="mt-6 text-3xl font-bold text-white text-center">
-            Cognitive Analysis Questionnaire
-          </h2>
+          <section className="mt-10 space-y-4">
+            {cognitiveQuestions.map((q, index) => (
+              <div key={q.id} className="card">
+                <div className="flex gap-3">
+                  <span className="faint text-[13px] tabular-nums">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  <h2 className="text-[17px] leading-snug">{q.question}</h2>
+                </div>
 
-          <div className="mt-10 space-y-6">
-            {cognitiveQuestions.map((q) => (
-              <div
-                key={q.id}
-                className="rounded-2xl bg-white/20 p-6 backdrop-blur-md shadow"
-              >
-                <h3 className="font-bold text-white text-lg">
-                  {q.question}
-                </h3>
-
-                <div className="mt-4 flex flex-wrap gap-3">
+                <div className="mt-4 flex flex-wrap gap-2 pl-8">
                   {q.options.map((opt) => {
                     const selected = answers[q.id] === opt.score;
 
@@ -317,11 +334,8 @@ function calculateAppPerformanceScores() {
                       <button
                         key={opt.label}
                         onClick={() => handleSelect(q.id, opt.score)}
-                        className={`rounded-xl px-4 py-2 font-bold ${
-                          selected
-                            ? "bg-white text-[var(--theme-main)]"
-                            : "bg-white/30 text-white"
-                        }`}
+                        aria-pressed={selected}
+                        className={`btn btn-sm ${selected ? "btn-accent" : ""}`}
                       >
                         {opt.label}
                       </button>
@@ -330,85 +344,103 @@ function calculateAppPerformanceScores() {
                 </div>
               </div>
             ))}
-          </div>
+          </section>
 
-          <div className="mt-10 text-center">
+          <div className="mt-8 flex items-center gap-4">
             <button
-  onClick={() => {
-    const questionnaireScores = calculateQuestionnaireScores();
-const appScores = calculateAppPerformanceScores();
+              onClick={() => {
+                const questionnaireScores = calculateQuestionnaireScores();
+                const appScores = calculateAppPerformanceScores();
 
-const finalScores = {
-  ...questionnaireScores,
-  ...appScores,
-};
+                const finalScores = {
+                  ...questionnaireScores,
+                  ...appScores,
+                };
 
-setScorePreview(finalScores);
-saveAnalysis(finalScores).then(() => {
-  loadSavedReports();
-});  }}
-  disabled={Object.keys(answers).length !== cognitiveQuestions.length}
-  className="rounded-xl bg-white px-6 py-3 font-bold text-[var(--theme-main)] disabled:opacity-50"
->
-  Generate Report
-</button>
-{scorePreview && (
-  <div className="mt-8 rounded-2xl bg-white/20 p-6 text-white backdrop-blur-md">
-    <h3 className="text-xl font-bold">Score Preview</h3>
-
-    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-      {Object.entries(scorePreview).map(([category, score]) => (
-        <div key={category} className="rounded-xl bg-white/20 px-4 py-3">
-          <div className="font-bold capitalize">{category}</div>
-          <div>{score}%</div>
-        </div>
-      ))}
-    </div>
-    <div className="mt-6 text-center">
-  <button
-    onClick={() => downloadPDF(scorePreview)}
-    className="rounded-xl bg-white px-5 py-2 font-bold text-[var(--theme-main)]"
-  >
-    Download PDF
-  </button>
-</div>
-  </div>
-)}
-
-
-{savedReports.length > 0 && (
-  <div className="mt-12">
-    <h3 className="text-2xl font-bold text-white text-center">
-      Previous Reports
-    </h3>
-
-    <div className="mt-6 space-y-4">
-      {savedReports.map((report) => (
-        <div
-          key={report.id}
-          className="rounded-2xl bg-white/20 p-5 text-white backdrop-blur-md"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-bold">Report Date:</div>
-              <div>
-                {new Date(report.createdAt).toLocaleString()}
-              </div>
-            </div>
-
-            <button
-              onClick={() => setScorePreview(report.scores)}
-              className="rounded-xl bg-white px-4 py-2 font-bold text-[var(--theme-main)]"
+                setScorePreview(finalScores);
+                setPreviewCreatedAt(undefined);
+                saveAnalysis(finalScores).then(() => {
+                  loadSavedReports();
+                });
+              }}
+              disabled={!allAnswered}
+              className="btn btn-primary"
             >
-              View
+              Generate report
             </button>
+
+            {!allAnswered && (
+              <p className="faint text-[13px]">
+                {Object.keys(answers).length}/{cognitiveQuestions.length}{" "}
+                answered
+              </p>
+            )}
           </div>
-        </div>
-      ))}
-    </div>
-  </div>
-)}
-          </div>
+
+          {scorePreview && (
+            <section className="mt-14" ref={previewRef}>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h2 className="section-title">Score preview</h2>
+                  <p className="faint mt-1 text-[13px]">
+                    {previewCreatedAt
+                      ? `Saved report from ${new Date(previewCreatedAt).toLocaleString()}`
+                      : "Latest results"}
+                  </p>
+                </div>
+                <button
+                  onClick={() => downloadPDF(scorePreview, previewCreatedAt)}
+                  className="btn btn-sm"
+                >
+                  Download PDF
+                </button>
+              </div>
+
+              <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {Object.entries(scorePreview).map(([category, score]) => (
+                  <div key={category} className="stat">
+                    <p className="stat-value tabular-nums">{score}%</p>
+                    <p className="stat-label">
+                      {category.replace(/([A-Z])/g, " $1")}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {savedReports.length > 0 && (
+            <section className="mt-14">
+              <h2 className="section-title">Previous reports</h2>
+
+              <div className="mt-5 divide-y divide-[var(--border)] border-y border-[var(--border)]">
+                {savedReports.map((report) => (
+                  <div
+                    key={report.id}
+                    className="flex items-center justify-between gap-4 py-4"
+                  >
+                    <p className="muted text-[14px]">
+                      {new Date(report.createdAt).toLocaleString()}
+                    </p>
+
+                    <button
+                      onClick={() => {
+                        setScorePreview(report.scores);
+                        setPreviewCreatedAt(report.createdAt);
+                        previewRef.current?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "start",
+                        });
+                      }}
+                      className="btn btn-sm"
+                    >
+                      View
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       </div>
     </AuthGuard>

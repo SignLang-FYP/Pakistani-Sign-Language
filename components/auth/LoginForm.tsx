@@ -6,44 +6,21 @@ import { useRouter } from "next/navigation";
 
 import Link from "next/link";
 import { useState } from "react";
+import { useModal } from "@/components/common/ModalProvider";
 
 export default function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
   const router = useRouter();
+  const modal = useModal();
 
-  return (
-    <div className="mt-10 w-full rounded-2xl bg-white/20 backdrop-blur-md p-6 shadow-xl">
-      <input
-        type="email"
-        placeholder="Email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        className="w-full rounded-xl border border-white/30 bg-white/80 px-4 py-3 outline-none mb-4 text-gray-800 placeholder:text-gray-500"
-      />
+  async function handleLogin() {
+    setBusy(true);
 
-      <div className="relative mb-4">
-        <input
-          type={showPassword ? "text" : "password"}
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full rounded-xl border border-white/30 bg-white/80 px-4 py-3 pr-16 outline-none text-gray-800 placeholder:text-gray-500"
-        />
-        <button
-          type="button"
-          onClick={() => setShowPassword((prev) => !prev)}
-          className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-[#FF6D00]"
-        >
-          {showPassword ? "Hide" : "Show"}
-        </button>
-      </div>
-
-      <button
-  onClick={async () => {
     try {
       const userCredential = await signInWithEmailAndPassword(
         auth,
@@ -52,26 +29,89 @@ export default function LoginForm() {
       );
 
       if (!userCredential.user.emailVerified) {
-        alert("Please verify your email first.");
+        await modal.info(
+          "Please verify your email first.",
+          "Email not verified"
+        );
         return;
       }
 
       router.push("/home");
     } catch (error: any) {
-      alert(error.message);
+      await modal.error(error.message);
+    } finally {
+      setBusy(false);
     }
-  }}
-  className="w-full rounded-xl bg-white text-[#FF6D00] font-bold py-3 transition hover:scale-[1.01]"
->
-  Login
-</button>
+  }
 
-      <p className="mt-4 text-center text-white">
+  return (
+    <form
+      className="mt-10"
+      onSubmit={(event) => {
+        event.preventDefault();
+        handleLogin();
+      }}
+    >
+      <div>
+        <label className="field-label" htmlFor="login-email">
+          Email
+        </label>
+        <input
+          id="login-email"
+          type="email"
+          autoComplete="email"
+          placeholder="you@example.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          suppressHydrationWarning
+          className="input"
+        />
+      </div>
+
+      <div className="mt-4">
+        <label className="field-label" htmlFor="login-password">
+          Password
+        </label>
+        <div className="relative">
+          <input
+            id="login-password"
+            type={showPassword ? "text" : "password"}
+            autoComplete="current-password"
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            suppressHydrationWarning
+            className="input pr-16"
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((prev) => !prev)}
+            suppressHydrationWarning
+            className="muted absolute right-3 top-1/2 -translate-y-1/2 text-[13px] font-medium hover:text-[var(--text)]"
+          >
+            {showPassword ? "Hide" : "Show"}
+          </button>
+        </div>
+      </div>
+
+      <button
+        type="submit"
+        disabled={busy}
+        suppressHydrationWarning
+        className="btn btn-primary btn-block mt-6"
+      >
+        {busy ? "Signing in…" : "Sign in"}
+      </button>
+
+      <p className="muted mt-6 text-center text-[14px]">
         Don&apos;t have an account?{" "}
-        <Link href="/signup" className="font-semibold underline">
-          Sign Up
+        <Link
+          href="/signup"
+          className="font-medium text-[var(--text)] underline underline-offset-4"
+        >
+          Sign up
         </Link>
       </p>
-    </div>
+    </form>
   );
 }
